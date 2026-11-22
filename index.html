@@ -291,6 +291,8 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden && S.key && !S.keepOpen) lock();
   if (!document.hidden) { S.last = Date.now(); if (!S.key && S.autoBio) S.autoBio(); }
 });
+// iOS peut remettre l'app au premier plan sans « visibilitychange » : on écoute aussi ces événements.
+['pageshow', 'focus'].forEach(ev => window.addEventListener(ev, () => { if (!S.key && S.autoBio) S.autoBio(); }));
 
 // ---------- presse-papier ----------
 async function copy(text, message) {
@@ -471,7 +473,14 @@ function renderLock(message) {
       catch (e) { S.busy = false; bioBtn.disabled = false; if (userAsked || (e && e.name !== 'NotAllowedError')) bioErr.textContent = bioError(e); }
     };
     bioBtn.onclick = () => tryBio(true);
-    S.autoBio = () => tryBio(false);
+    // Lancement automatique de la demande Face ID (ouverture de l'app, retour dans l'app).
+    // Pause de 3 s après chaque tentative : si vous annulez, la fenêtre ne revient pas en boucle.
+    let lastAuto = 0;
+    S.autoBio = () => {
+      if (Date.now() - lastAuto < 3000 || document.hidden) return;
+      lastAuto = Date.now();
+      setTimeout(() => { if (!document.hidden) tryBio(false).finally(() => { lastAuto = Date.now(); }); }, 250);
+    };
     pwCard.style.display = 'none';
     bioPart = [h('div', { class: 'card' }, bioBtn, bioErr),
       h('button', { class: 'link small', type: 'button', text: 'Utiliser le mot de passe maître', onclick: ev => {

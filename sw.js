@@ -1,6 +1,6 @@
 // Mon Coffre — service worker : garde l'application disponible hors connexion.
 // Changer VERSION à chaque mise à jour des fichiers pour que l'iPhone récupère la nouvelle version.
-const VERSION = 'moncoffre-v6';
+const VERSION = 'moncoffre-v5';
 const FILES = ['./', './index.html', './manifest.webmanifest', './icons/icon-180.png', './icons/icon-192.png', './icons/icon-512.png'];
 
 self.addEventListener('install', event => {

@@ -62,19 +62,13 @@
     border-radius: 16px; border: 1px solid var(--border); background: var(--card); font-weight: 600; text-align: left; cursor: pointer; }
   .site span { flex: 1; word-break: break-word; }
   .site::after { content: "›"; color: var(--muted); font-size: 22px; }
-  .az-btn { position: fixed; right: calc(env(safe-area-inset-right) + 16px); bottom: calc(var(--bottom) + 20px); z-index: 6;
-    width: 64px; height: 64px; border-radius: 32px; border: 0; background: var(--green); color: var(--bg);
-    font-weight: 800; font-size: 17px; box-shadow: 0 6px 20px rgba(0,0,0,.45); cursor: pointer; }
-  .list { padding-bottom: 90px; }
-  .grid-overlay { position: fixed; inset: 0; z-index: 30; background: rgba(5,10,12,.72); display: flex; align-items: flex-end; justify-content: center;
-    padding: 16px 16px calc(var(--bottom) + 16px); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
-  .grid-card { width: 100%; max-width: 480px; background: var(--card); border: 1px solid var(--border); border-radius: 22px; padding: 16px; }
-  .grid-title { color: var(--muted); font-size: 15px; margin: 2px 4px 12px; }
-  .grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
-  .cell { display: flex; align-items: center; justify-content: center; height: 52px; border-radius: 14px; font-size: 20px; font-weight: 700;
-    color: var(--muted); opacity: .35; background: var(--bg); border: 1px solid var(--border); user-select: none; -webkit-user-select: none; }
-  .cell.on { color: var(--green); opacity: 1; cursor: pointer; }
-  .cell.hit { background: var(--green); color: var(--bg); }
+  .list { padding-right: 46px; }
+  .rail { position: fixed; right: calc(env(safe-area-inset-right) + 6px); top: calc(var(--top) + 140px); bottom: calc(var(--bottom) + 16px);
+    width: 36px; display: flex; flex-direction: column; justify-content: space-between; padding: 6px 0;
+    background: rgba(26,37,45,.8); border: 1px solid var(--border); border-radius: 14px; touch-action: none; user-select: none; -webkit-user-select: none; }
+  .rail b { flex: 1; display: flex; align-items: center; justify-content: center; font-size: 13px; color: var(--muted); opacity: .45; }
+  .rail b.on { color: var(--green); opacity: 1; }
+  .rail b.sel { background: rgba(36,199,115,.22); border-radius: 8px; }
   .hero { text-align: center; padding-top: calc(var(--top) + 48px); }
   .hero img { width: 96px; height: 96px; border-radius: 22px; }
   .hero h1 { margin: 16px 0 6px; }
@@ -544,16 +538,23 @@ function bioOffer() {
 
 function renderList() {
   const listEl = h('div', { class: 'list' });
-  let groups = {};
+  const rail = h('div', { class: 'rail', 'aria-label': 'Index alphabétique' });
   const search = h('input', { class: 'search', type: 'search', placeholder: 'Rechercher un site, un login…', value: S.search,
     autocomplete: 'off', autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false',
     oninput: () => { S.search = search.value; fill(); } });
-  // Bouton « A–Z » : ouvre la grille des lettres (chaque lettre touchée = un tic + saut à la section).
-  const azBtn = h('button', { class: 'az-btn', 'aria-label': 'Aller à une lettre', text: 'A–Z', onclick: () => openLetterGrid(groups) });
+  let selected = null, touched = null;
+  function jump(letter, groups) {
+    if (touched !== letter) { touched = letter; haptic(); } // un « tic » à chaque lettre franchie
+    if (!groups[letter] || selected === letter) return;
+    selected = letter;
+    rail.querySelectorAll('b').forEach(b => b.classList.toggle('sel', b.dataset.l === letter));
+    const target = document.getElementById('L-' + letter);
+    if (target) target.scrollIntoView({ block: 'start' });
+  }
   function fill() {
     const q = S.search.trim().toLocaleLowerCase('fr');
     const shown = S.entries.filter(e => !q || (e.site + ' ' + e.login + ' ' + e.url).toLocaleLowerCase('fr').includes(q)).sort(compare);
-    groups = {};
+    const groups = {};
     for (const e of shown) (groups[sectionOf(e.site)] ||= []).push(e);
     const kids = [];
     if (!S.entries.length) {
@@ -566,7 +567,16 @@ function renderList() {
       for (const e of groups[L]) kids.push(h('button', { class: 'site', 'aria-label': 'Ouvrir le site ' + e.site, onclick: () => renderDetail(e.id) }, h('span', { text: e.site })));
     }
     listEl.replaceChildren(...kids);
-    azBtn.style.display = Object.keys(groups).length ? '' : 'none';
+    rail.replaceChildren(...ALPHABET.map(L => hapticTarget(h('b', { 'data-l': L, class: groups[L] ? 'on' : '', text: L }))));
+    rail.style.display = S.entries.length ? '' : 'none';
+    const pick = (x, y) => { const el = document.elementFromPoint(x, y), b = el && el.closest && el.closest('[data-l]'); if (b) jump(b.dataset.l, groups); };
+    // Pas de preventDefault au premier contact : sinon iOS n'envoie pas l'appui à l'interrupteur (pas de tic).
+    // La page ne défile pas pour autant (touch-action: none sur la barre).
+    rail.ontouchstart = ev => { const t = ev.touches[0]; pick(t.clientX, t.clientY); };
+    rail.ontouchmove = ev => { ev.preventDefault(); const t = ev.touches[0]; pick(t.clientX, t.clientY); };
+    rail.onmousedown = ev => pick(ev.clientX, ev.clientY);
+    rail.ontouchend = rail.ontouchcancel = () => { selected = null; touched = null; };
+    rail.onmouseup = () => { touched = null; };
   }
   const header = h('header', { class: 'bar' }, h('div', { class: 'wrap' },
     h('div', { class: 'row' },
@@ -576,37 +586,7 @@ function renderList() {
       h('button', { class: 'icon-btn', 'aria-label': 'Ajouter un site', style: 'color:var(--green);font-weight:700', text: '+', onclick: () => renderEdit(null) })),
     search));
   fill();
-  show(header, h('div', { class: 'wrap' }, bioOffer(), listEl), azBtn);
-}
-
-// Grille des lettres : de grosses cases à toucher. Chaque case porte un interrupteur invisible
-// que le doigt bascule réellement : c'est la seule façon d'obtenir un tic depuis une page web sur iPhone.
-function openLetterGrid(groups) {
-  const close = () => overlay.remove();
-  const cells = ALPHABET.map(L => {
-    const has = !!groups[L];
-    const cell = h('div', { class: 'cell' + (has ? ' on' : ''), role: 'button', tabindex: has ? '0' : '-1',
-      'aria-disabled': has ? null : 'true', 'aria-label': has ? (L === '#' ? 'Chiffres et symboles' : 'Lettre ' + L) : 'Aucun site en ' + L, text: L });
-    if (has) {
-      hapticTarget(cell);
-      // Fermeture juste après le tic (si on retirait la grille tout de suite, l'interrupteur ne basculerait pas).
-      cell.addEventListener('click', () => {
-        cell.classList.add('hit');
-        setTimeout(() => {
-          close();
-          const target = document.getElementById('L-' + L);
-          if (target) target.scrollIntoView({ block: 'start' });
-        }, 140);
-      });
-    }
-    return cell;
-  });
-  const overlay = h('div', { class: 'grid-overlay', onclick: ev => { if (ev.target === overlay) close(); } },
-    h('div', { class: 'grid-card' },
-      h('div', { class: 'grid-title', text: 'Aller à la lettre' }),
-      h('div', { class: 'grid' }, cells),
-      h('button', { class: 'btn', style: 'width:100%;margin-top:14px', text: 'Fermer', onclick: close })));
-  app.append(overlay); // dans #app : la grille disparaît aussi au verrouillage
+  show(header, h('div', { class: 'wrap' }, bioOffer(), listEl), rail);
 }
 
 function renderDetail(id) {

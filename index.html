@@ -125,11 +125,13 @@ const isStandalone = () => navigator.standalone === true || matchMedia('(display
 const isIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
 // ---------- chiffrement ----------
-async function deriveKey(password, salt, iter) {
-  const base = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']);
-  return crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: iter, hash: 'SHA-256' }, base,
-    { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+// Clé brute (32 octets) tirée du mot de passe maître ; gardée en mémoire seulement le temps
+// de proposer Face ID, puis effacée au verrouillage.
+async function deriveRaw(password, salt, iter) {
+  const base = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveBits']);
+  return new Uint8Array(await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: iter, hash: 'SHA-256' }, base, 256));
 }
+const keyFromRaw = raw => crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
 async function seal(key, salt, iter, entries) {
   const iv = rand(12);
   const data = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, enc.encode(JSON.stringify(entries))));
@@ -139,19 +141,103 @@ function clean(e) {
   const s = v => (typeof v === 'string' ? v : '');
   return { id: s(e && e.id) || uid(), site: s(e && e.site), url: s(e && e.url), client: s(e && e.client), login: s(e && e.login), password: s(e && e.password) };
 }
-async function unseal(blob, password) {
+function checkBlob(blob) {
   if (!blob || blob.app !== 'MonCoffre' || blob.v !== 1 || !blob.salt || !blob.iv || !blob.data) throw new Error('Fichier de coffre non reconnu.');
   const iter = Number(blob.iter);
   if (!(iter >= 100000 && iter <= 10000000)) throw new Error('Fichier de coffre non reconnu.');
-  const salt = fromB64(blob.salt);
-  const key = await deriveKey(password, salt, iter);
+  return iter;
+}
+async function openWithKey(blob, key, wrongMessage) {
   let plain;
   try { plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromB64(blob.iv) }, key, fromB64(blob.data)); }
-  catch { throw new Error('Mot de passe incorrect.'); }
+  catch { throw new Error(wrongMessage); }
   const list = JSON.parse(dec.decode(plain));
   if (!Array.isArray(list)) throw new Error('Contenu du coffre endommagé.');
-  return { key, salt, iter, entries: list.map(clean) };
+  return list.map(clean);
 }
+async function unseal(blob, password) {
+  const iter = checkBlob(blob);
+  const salt = fromB64(blob.salt);
+  const raw = await deriveRaw(password, salt, iter);
+  const key = await keyFromRaw(raw);
+  const entries = await openWithKey(blob, key, 'Mot de passe incorrect.');
+  return { key, raw, salt, iter, entries };
+}
+
+// ---------- Face ID / code de l'iPhone (clé d'accès WebAuthn + extension PRF) ----------
+// La clé d'accès, gardée par l'iPhone, fournit un secret uniquement après Face ID / code.
+// Ce secret chiffre la clé du coffre ; sans lui, la copie stockée est inutilisable.
+const BIO = 'moncoffre.bio';
+function readBio() {
+  try {
+    const b = JSON.parse(localStorage.getItem(BIO)), s = readStore();
+    if (b && s && b.vaultSalt === s.salt) return b;
+  } catch {}
+  return null;
+}
+async function bioSupported() {
+  if (!window.PublicKeyCredential || !window.isSecureContext) return false;
+  try {
+    if (PublicKeyCredential.getClientCapabilities) {
+      const caps = await PublicKeyCredential.getClientCapabilities();
+      if (caps && caps['extension:prf'] === false) return false;
+    }
+    return await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+  } catch { return false; }
+}
+async function prfKey(secret) {
+  const base = await crypto.subtle.importKey('raw', secret, 'HKDF', false, ['deriveKey']);
+  return crypto.subtle.deriveKey({ name: 'HKDF', hash: 'SHA-256', salt: enc.encode('MonCoffre-FaceID-v1'), info: new Uint8Array() },
+    base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+}
+async function withKeepOpen(fn) {
+  S.keepOpen = true;
+  try { return await fn(); } finally { setTimeout(() => { S.keepOpen = false; }, 1500); }
+}
+async function bioAssert(credId, prfSalt) {
+  const cred = await withKeepOpen(() => navigator.credentials.get({ publicKey: {
+    challenge: rand(32), rpId: location.hostname, timeout: 60000, userVerification: 'required',
+    allowCredentials: [{ type: 'public-key', id: credId }],
+    extensions: { prf: { eval: { first: prfSalt } } } } }));
+  const r = cred && cred.getClientExtensionResults().prf;
+  if (!r || !r.results || !r.results.first) throw new Error('Cet iPhone ne permet pas Face ID pour Mon Coffre (iOS 18 ou plus récent requis).');
+  return new Uint8Array(r.results.first);
+}
+async function storeBio(raw, credId, prfSalt, secret) {
+  const k = await prfKey(secret), iv = rand(12);
+  const wrapped = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, k, raw));
+  localStorage.setItem(BIO, JSON.stringify({ credId: toB64(credId), prfSalt: toB64(prfSalt), iv: toB64(iv), wrapped: toB64(wrapped), vaultSalt: readStore().salt }));
+}
+// Étape 1 : créer la clé d'accès. Renvoie true si Face ID est activé, ou une fonction « finir »
+// à lancer sur un second appui si l'iPhone n'a pas fourni le secret dès la création.
+async function enableBio(raw) {
+  const prfSalt = rand(32);
+  const cred = await withKeepOpen(() => navigator.credentials.create({ publicKey: {
+    rp: { name: 'Mon Coffre', id: location.hostname },
+    user: { id: rand(16), name: 'Mon Coffre', displayName: 'Mon Coffre' },
+    challenge: rand(32), timeout: 60000,
+    pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
+    authenticatorSelection: { authenticatorAttachment: 'platform', residentKey: 'preferred', userVerification: 'required' },
+    extensions: { prf: { eval: { first: prfSalt } } } } }));
+  const ext = cred.getClientExtensionResults().prf;
+  if (!ext || ext.enabled === false) throw new Error('Cet iPhone ne permet pas Face ID pour Mon Coffre (iOS 18 ou plus récent requis). Continuez avec le mot de passe maître.');
+  const credId = new Uint8Array(cred.rawId);
+  if (ext.results && ext.results.first) { await storeBio(raw, credId, prfSalt, new Uint8Array(ext.results.first)); return true; }
+  return async () => { await storeBio(raw, credId, prfSalt, await bioAssert(credId, prfSalt)); return true; };
+}
+async function unlockWithBio() {
+  const b = readBio(), blob = readStore();
+  if (!b || !blob) throw new Error('Face ID n’est pas activé.');
+  const iter = checkBlob(blob);
+  const secret = await bioAssert(fromB64(b.credId), fromB64(b.prfSalt));
+  let raw;
+  try { raw = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromB64(b.iv) }, await prfKey(secret), fromB64(b.wrapped))); }
+  catch { throw new Error('Face ID ne correspond plus à ce coffre. Utilisez le mot de passe maître.'); }
+  const key = await keyFromRaw(raw); raw.fill(0);
+  const entries = await openWithKey(blob, key, 'Face ID ne correspond plus à ce coffre. Utilisez le mot de passe maître.');
+  return { key, raw: null, salt: fromB64(blob.salt), iter, entries };
+}
+const bioError = e => (e && e.name === 'NotAllowedError' ? 'Authentification annulée ou refusée.' : (e && e.message) || 'Erreur inconnue.');
 function readStore() { try { return JSON.parse(localStorage.getItem(STORE)); } catch { return null; } }
 async function persist(next) {
   if (!S.key) throw new Error('Le coffre est verrouillé.');
@@ -194,6 +280,8 @@ const compare = (a, b) => a.site.localeCompare(b.site, 'fr', { sensitivity: 'bas
 // ---------- verrouillage automatique ----------
 function lock(message) {
   S.gen++; S.key = null; S.entries = []; S.search = ''; S.busy = false;
+  if (S.raw) S.raw.fill(0);
+  S.raw = null;
   renderLock(message);
 }
 ['pointerdown', 'keydown', 'input', 'touchmove'].forEach(ev => document.addEventListener(ev, () => { S.last = Date.now(); }, { passive: true, capture: true }));
@@ -201,7 +289,7 @@ document.addEventListener('scroll', () => { S.last = Date.now(); }, { passive: t
 setInterval(() => { if (S.key && Date.now() - S.last > LOCK_MS) lock('Coffre verrouillé après 2 minutes sans activité.'); }, 5000);
 document.addEventListener('visibilitychange', () => {
   if (document.hidden && S.key && !S.keepOpen) lock();
-  if (!document.hidden) S.last = Date.now();
+  if (!document.hidden) { S.last = Date.now(); if (!S.key && S.autoBio) S.autoBio(); }
 });
 
 // ---------- presse-papier ----------
@@ -324,12 +412,14 @@ function renderSetup() {
     btn.disabled = true; btn.textContent = 'Création…';
     try {
       S.salt = rand(16); S.iter = ITER;
-      S.key = await deriveKey(a.input.value, S.salt, S.iter);
+      S.raw = await deriveRaw(a.input.value, S.salt, S.iter);
+      S.key = await keyFromRaw(S.raw);
+      localStorage.removeItem(BIO);
       S.entries = []; S.last = Date.now();
       await persist([]);
       if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
       renderList();
-    } catch (e) { S.key = null; err.textContent = e.message; btn.disabled = false; btn.textContent = 'Créer mon coffre'; }
+    } catch (e) { S.key = null; S.raw = null; err.textContent = e.message; btn.disabled = false; btn.textContent = 'Créer mon coffre'; }
   };
   show(h('div', { class: 'wrap hero' },
     h('img', { src: 'icons/icon-192.png', alt: '' }),
@@ -346,6 +436,10 @@ function renderLock(message) {
   const err = h('div', { class: 'error', role: 'alert' });
   const info = message ? h('div', { class: 'muted small', text: message }) : null;
   const btn = h('button', { class: 'btn primary', type: 'submit', text: 'Ouvrir le coffre' });
+  const opened = r => {
+    Object.assign(S, { key: r.key, raw: r.raw, salt: r.salt, iter: r.iter, entries: r.entries, last: Date.now() });
+    S.busy = false; S.autoBio = null; renderList();
+  };
   const form = h('form', { onsubmit: async ev => {
     ev.preventDefault();
     if (S.busy) return;
@@ -354,20 +448,68 @@ function renderLock(message) {
     try {
       const r = await unseal(readStore(), p.input.value);
       if (gen !== S.gen) return;
-      Object.assign(S, { key: r.key, salt: r.salt, iter: r.iter, entries: r.entries, last: Date.now() });
-      S.busy = false; renderList();
+      opened(r);
     } catch (e) { S.busy = false; err.textContent = e.message; btn.disabled = false; btn.textContent = 'Ouvrir le coffre'; p.input.select(); }
   } }, p.node, err, btn);
   const reset = h('button', { class: 'link small', type: 'button', text: 'Mot de passe oublié ? Effacer le coffre', onclick: () => {
     const typed = prompt('Ceci supprime DÉFINITIVEMENT tous les identifiants de cet appareil (seules vos sauvegardes exportées resteront).\n\nTapez EFFACER pour confirmer :');
-    if (typed === 'EFFACER') { localStorage.removeItem(STORE); renderSetup(); }
+    if (typed === 'EFFACER') { localStorage.removeItem(STORE); localStorage.removeItem(BIO); renderSetup(); }
   } });
+
+  // Face ID activé : bouton principal, le mot de passe maître reste disponible en secours.
+  const bio = readBio();
+  let bioPart = null;
+  const pwCard = h('div', { class: 'card', style: 'text-align:left' }, form);
+  if (bio) {
+    const bioErr = h('div', { class: 'error', role: 'alert' });
+    const bioBtn = h('button', { class: 'btn primary', text: '🙂 Ouvrir avec Face ID' });
+    const tryBio = async userAsked => {
+      if (S.busy || S.key) return;
+      S.busy = true; bioErr.textContent = ''; bioBtn.disabled = true;
+      const gen = S.gen;
+      try { const r = await unlockWithBio(); if (gen !== S.gen) return; opened(r); }
+      catch (e) { S.busy = false; bioBtn.disabled = false; if (userAsked || (e && e.name !== 'NotAllowedError')) bioErr.textContent = bioError(e); }
+    };
+    bioBtn.onclick = () => tryBio(true);
+    S.autoBio = () => tryBio(false);
+    pwCard.style.display = 'none';
+    bioPart = [h('div', { class: 'card' }, bioBtn, bioErr),
+      h('button', { class: 'link small', type: 'button', text: 'Utiliser le mot de passe maître', onclick: ev => {
+        pwCard.style.display = ''; ev.target.remove(); p.input.focus(); } })];
+  } else S.autoBio = null;
+
   show(h('div', { class: 'wrap hero' },
     h('img', { src: 'icons/icon-192.png', alt: '' }),
     h('h1', { text: 'Mon Coffre' }), h('p', { class: 'muted', text: '🔒 Coffre verrouillé' }), info,
-    installHint(),
-    h('div', { class: 'card', style: 'text-align:left' }, form), reset));
-  if (!isIOS()) p.input.focus();
+    installHint(), bioPart, pwCard, h('div', null, reset)));
+  if (!bio && !isIOS()) p.input.focus();
+}
+
+// Proposition d'activer Face ID, affichée après une ouverture par mot de passe.
+function bioOffer() {
+  if (!S.raw || readBio() || S.bioOfferHidden) return null;
+  const box = h('div', { class: 'card', style: 'display:none' });
+  bioSupported().then(ok => {
+    if (!ok || !S.raw) return;
+    const msg = h('div', { class: 'small', role: 'status' });
+    const later = h('button', { class: 'btn', text: 'Plus tard', onclick: () => { S.bioOfferHidden = true; box.remove(); } });
+    const yes = h('button', { class: 'btn', style: 'background:var(--green);color:var(--bg);font-weight:700', text: 'Activer Face ID' });
+    const done = () => { if (S.raw) { S.raw.fill(0); S.raw = null; } box.replaceChildren(h('div', { class: 'ok', text: '✓ Face ID activé. La prochaine fois, le coffre s’ouvrira avec Face ID (ou le code de l’iPhone).' })); };
+    yes.onclick = async () => {
+      msg.className = 'small'; msg.textContent = ''; yes.disabled = true;
+      try {
+        const r = await enableBio(S.raw);
+        if (r === true) return done();
+        yes.textContent = 'Dernière étape : confirmer avec Face ID'; yes.disabled = false;
+        yes.onclick = async () => { yes.disabled = true; try { await r(); done(); } catch (e) { msg.className = 'error'; msg.textContent = bioError(e); yes.disabled = false; } };
+      } catch (e) { msg.className = 'error'; msg.textContent = bioError(e); yes.disabled = false; }
+    };
+    box.replaceChildren(h('b', { text: 'Ouvrir le coffre avec Face ID ?' }),
+      h('p', { class: 'small muted', text: 'Les prochaines fois, Face ID (ou le code de l’iPhone) remplacera le mot de passe maître. Gardez quand même ce mot de passe : il reste le secours.' }),
+      h('div', { class: 'row-btns' }, yes, later), msg);
+    box.style.display = '';
+  });
+  return box;
 }
 
 function renderList() {
@@ -415,7 +557,7 @@ function renderList() {
       h('button', { class: 'icon-btn', 'aria-label': 'Ajouter un site', style: 'color:var(--green);font-weight:700', text: '+', onclick: () => renderEdit(null) })),
     search));
   fill();
-  show(header, h('div', { class: 'wrap' }, listEl), rail);
+  show(header, h('div', { class: 'wrap' }, bioOffer(), listEl), rail);
 }
 
 function renderDetail(id) {
@@ -537,6 +679,38 @@ function renderSettings() {
     if (await saveFile(`MonCoffre-${today()}.csv`, 'text/csv', toCSV(S.entries))) say('Fichier CSV créé. Supprimez-le dès que vous n’en avez plus besoin.', true);
   });
 
+  // Face ID
+  const bioCard = h('div', { class: 'card' });
+  function renderBioSection() {
+    const title = h('h3', { style: 'margin-top:0', text: 'Face ID / code de l’iPhone' });
+    if (readBio()) {
+      bioCard.replaceChildren(title, h('p', { class: 'ok', text: '✓ Activé : le coffre s’ouvre avec Face ID ou le code de l’iPhone.' }),
+        h('button', { class: 'btn danger', text: 'Désactiver Face ID', onclick: () => {
+          if (!confirm('Désactiver Face ID ? Le coffre s’ouvrira de nouveau avec le mot de passe maître.')) return;
+          localStorage.removeItem(BIO); renderBioSection(); say('Face ID désactivé.', true);
+        } }));
+      return;
+    }
+    const p = pwField('Mot de passe maître', { autocomplete: 'current-password' });
+    const go = h('button', { class: 'btn', text: 'Activer Face ID' });
+    go.onclick = run(async () => {
+      if (!(await bioSupported())) throw new Error('Cet appareil ne permet pas Face ID pour Mon Coffre (iOS 18 ou plus récent requis, depuis l’icône installée).');
+      go.disabled = true;
+      try {
+        const r = await unseal(readStore(), p.input.value); // vérifie le mot de passe
+        let res = await enableBio(r.raw);
+        if (res !== true) {
+          go.textContent = 'Dernière étape : confirmer avec Face ID'; go.disabled = false;
+          go.onclick = run(async () => { go.disabled = true; try { await res(); r.raw.fill(0); renderBioSection(); say('Face ID activé.', true); } finally { go.disabled = false; } });
+          return;
+        }
+        r.raw.fill(0); renderBioSection(); say('Face ID activé.', true);
+      } catch (e) { go.disabled = false; throw new Error(bioError(e)); }
+    });
+    bioCard.replaceChildren(title, h('p', { class: 'small muted', text: 'Ouvrez le coffre avec Face ID au lieu du mot de passe maître. Le mot de passe maître reste le moyen de secours.' }), p.node, go);
+  }
+  renderBioSection();
+
   // Changer le mot de passe maître
   const cur = pwField('Mot de passe maître actuel', { autocomplete: 'current-password' });
   const n1 = pwField('Nouveau mot de passe (10 caractères minimum)', { autocomplete: 'new-password' });
@@ -547,12 +721,16 @@ function renderSettings() {
     change.disabled = true;
     try {
       await unseal(readStore(), cur.input.value); // vérifie l'ancien mot de passe
-      const salt = rand(16), key = await deriveKey(n1.input.value, salt, ITER);
+      const salt = rand(16), raw = await deriveRaw(n1.input.value, salt, ITER), key = await keyFromRaw(raw);
       const old = { key: S.key, salt: S.salt, iter: S.iter };
       Object.assign(S, { key, salt, iter: ITER });
       try { await persist(S.entries); } catch (e) { Object.assign(S, old); throw e; }
+      const hadBio = !!localStorage.getItem(BIO);
+      localStorage.removeItem(BIO); // l'ancien lien Face ID ne correspond plus au nouveau mot de passe
+      S.raw = raw; S.bioOfferHidden = false;
       [cur, n1, n2].forEach(f => { f.input.value = ''; });
-      say('Mot de passe maître changé. Pensez à refaire une sauvegarde chiffrée.', true);
+      say('Mot de passe maître changé. ' + (hadBio ? 'Réactivez Face ID ci-dessous. ' : '') + 'Pensez à refaire une sauvegarde chiffrée.', true);
+      renderBioSection();
     } finally { change.disabled = false; }
   }) });
 
@@ -575,6 +753,7 @@ function renderSettings() {
         h('div', { class: 'row-btns' },
           h('button', { class: 'btn', text: '⬇︎ Importer un CSV', onclick: importCSV }),
           h('button', { class: 'btn danger', text: '⬆︎ Exporter en CSV (non chiffré)', onclick: exportCSV }))),
+      bioCard,
       h('div', { class: 'card' },
         h('h3', { style: 'margin-top:0', text: 'Mot de passe maître' }), cur.node, n1.node, n2.node, change),
       h('div', { class: 'card small muted' },
@@ -588,7 +767,7 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.ser
 if (!window.crypto || !crypto.subtle) {
   show(h('div', { class: 'wrap hero' }, h('h1', { text: 'Mon Coffre' }),
     h('p', { class: 'error', text: 'Cette page doit être ouverte depuis une adresse sécurisée (https://) pour pouvoir chiffrer vos données.' })));
-} else if (readStore()) renderLock(); else renderSetup();
+} else if (readStore()) { renderLock(); if (S.autoBio) S.autoBio(); } else renderSetup();
 </script>
 </body>
 </html>

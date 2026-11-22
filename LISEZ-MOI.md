@@ -20,7 +20,14 @@ Même usage que l'app Xcode, mais sans Xcode ni câble : on l'installe depuis Sa
 - Verrouillage en quittant l'application ou après 2 minutes sans activité.
 - Mot de passe maître oublié = coffre illisible. Faire des sauvegardes chiffrées (⚙︎).
 
+## Face ID
+- 1re ouverture : mot de passe maître. L'app propose ensuite « Activer Face ID ».
+- Ensuite : ouverture par Face ID (ou code de l'iPhone). Le mot de passe maître reste le secours
+  (lien « Utiliser le mot de passe maître »). Activer/désactiver aussi dans ⚙︎.
+- Fonctionnement : une clé d'accès (passkey, extension PRF) de l'iPhone protège la clé du coffre. iOS 18 minimum.
+- Changer le mot de passe maître désactive Face ID : le réactiver dans ⚙︎.
+
 ## Différences avec l'app Xcode
-- Mot de passe maître au lieu de Face ID (Safari ne permet pas Face ID pour ce type de coffre).
+- Mot de passe maître à créer et à garder en secours (Face ID ensuite).
 - Le presse-papier ne s'efface pas tout seul après 60 s.
 - Import/export en CSV (Excel : Enregistrer sous › CSV UTF-8) au lieu de .xlsx.

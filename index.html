@@ -277,6 +277,23 @@ function sectionOf(name) {
 }
 const compare = (a, b) => a.site.localeCompare(b.site, 'fr', { sensitivity: 'base', numeric: true }) || a.id.localeCompare(b.id);
 
+// ---------- retour haptique ----------
+// Safari sur iPhone n'a pas navigator.vibrate ; en revanche, basculer un interrupteur
+// (<input type="checkbox" switch>, iOS 18+) produit un léger « tic » du moteur haptique.
+let hapticLabel = null;
+function haptic() {
+  try {
+    if (navigator.vibrate) { navigator.vibrate(8); return; }
+    if (!hapticLabel) {
+      const input = h('input', { type: 'checkbox', switch: true, id: 'haptic-switch', tabindex: '-1', 'aria-hidden': 'true' });
+      hapticLabel = h('label', { for: 'haptic-switch', 'aria-hidden': 'true',
+        style: 'position:fixed;left:-100px;top:0;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none' }, input);
+      document.body.append(hapticLabel);
+    }
+    hapticLabel.click();
+  } catch {}
+}
+
 // ---------- verrouillage automatique ----------
 function lock(message) {
   S.gen++; S.key = null; S.entries = []; S.search = ''; S.busy = false;
@@ -527,8 +544,9 @@ function renderList() {
   const search = h('input', { class: 'search', type: 'search', placeholder: 'Rechercher un site, un login…', value: S.search,
     autocomplete: 'off', autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false',
     oninput: () => { S.search = search.value; fill(); } });
-  let selected = null;
+  let selected = null, touched = null;
   function jump(letter, groups) {
+    if (touched !== letter) { touched = letter; haptic(); } // un « tic » à chaque lettre franchie
     if (!groups[letter] || selected === letter) return;
     selected = letter;
     rail.querySelectorAll('b').forEach(b => b.classList.toggle('sel', b.dataset.l === letter));
@@ -556,7 +574,8 @@ function renderList() {
     const pick = (x, y) => { const el = document.elementFromPoint(x, y); if (el && el.dataset && el.dataset.l) jump(el.dataset.l, groups); };
     rail.ontouchstart = rail.ontouchmove = ev => { ev.preventDefault(); const t = ev.touches[0]; pick(t.clientX, t.clientY); };
     rail.onmousedown = ev => pick(ev.clientX, ev.clientY);
-    rail.ontouchend = () => { selected = null; };
+    rail.ontouchend = rail.ontouchcancel = () => { selected = null; touched = null; };
+    rail.onmouseup = () => { touched = null; };
   }
   const header = h('header', { class: 'bar' }, h('div', { class: 'wrap' },
     h('div', { class: 'row' },

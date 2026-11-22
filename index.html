@@ -278,20 +278,18 @@ function sectionOf(name) {
 const compare = (a, b) => a.site.localeCompare(b.site, 'fr', { sensitivity: 'base', numeric: true }) || a.id.localeCompare(b.id);
 
 // ---------- retour haptique ----------
-// Safari sur iPhone n'a pas navigator.vibrate ; en revanche, basculer un interrupteur
-// (<input type="checkbox" switch>, iOS 18+) produit un léger « tic » du moteur haptique.
-let hapticLabel = null;
-function haptic() {
-  try {
-    if (navigator.vibrate) { navigator.vibrate(8); return; }
-    if (!hapticLabel) {
-      const input = h('input', { type: 'checkbox', switch: true, id: 'haptic-switch', tabindex: '-1', 'aria-hidden': 'true' });
-      hapticLabel = h('label', { for: 'haptic-switch', 'aria-hidden': 'true',
-        style: 'position:fixed;left:-100px;top:0;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none' }, input);
-      document.body.append(hapticLabel);
-    }
-    hapticLabel.click();
-  } catch {}
+// Safari sur iPhone n'a pas navigator.vibrate. En revanche, un interrupteur iOS
+// (<input type="checkbox" switch>, iOS 17.4+) fait un « tic » quand le DOIGT le bascule.
+// Un déclenchement par le code (pendant un glissement, par exemple) est ignoré par iOS :
+// on pose donc un interrupteur invisible SOUS chaque lettre, que le doigt touche vraiment.
+function haptic() { try { if (navigator.vibrate) navigator.vibrate(8); } catch {} } // Android
+function hapticTarget(el) {
+  const sw = h('input', { type: 'checkbox', switch: true, tabindex: '-1', 'aria-hidden': 'true',
+    style: 'position:absolute;width:1px;height:1px;margin:0;visibility:hidden' });
+  sw.addEventListener('click', ev => ev.stopPropagation());
+  el.style.position = 'relative';
+  el.append(h('label', { 'aria-hidden': 'true', style: 'position:absolute;inset:0;-webkit-tap-highlight-color:transparent' }, sw));
+  return el;
 }
 
 // ---------- verrouillage automatique ----------
@@ -569,10 +567,13 @@ function renderList() {
       for (const e of groups[L]) kids.push(h('button', { class: 'site', 'aria-label': 'Ouvrir le site ' + e.site, onclick: () => renderDetail(e.id) }, h('span', { text: e.site })));
     }
     listEl.replaceChildren(...kids);
-    rail.replaceChildren(...ALPHABET.map(L => h('b', { 'data-l': L, class: groups[L] ? 'on' : '', text: L })));
+    rail.replaceChildren(...ALPHABET.map(L => hapticTarget(h('b', { 'data-l': L, class: groups[L] ? 'on' : '', text: L }))));
     rail.style.display = S.entries.length ? '' : 'none';
-    const pick = (x, y) => { const el = document.elementFromPoint(x, y); if (el && el.dataset && el.dataset.l) jump(el.dataset.l, groups); };
-    rail.ontouchstart = rail.ontouchmove = ev => { ev.preventDefault(); const t = ev.touches[0]; pick(t.clientX, t.clientY); };
+    const pick = (x, y) => { const el = document.elementFromPoint(x, y), b = el && el.closest && el.closest('[data-l]'); if (b) jump(b.dataset.l, groups); };
+    // Pas de preventDefault au premier contact : sinon iOS n'envoie pas l'appui à l'interrupteur (pas de tic).
+    // La page ne défile pas pour autant (touch-action: none sur la barre).
+    rail.ontouchstart = ev => { const t = ev.touches[0]; pick(t.clientX, t.clientY); };
+    rail.ontouchmove = ev => { ev.preventDefault(); const t = ev.touches[0]; pick(t.clientX, t.clientY); };
     rail.onmousedown = ev => pick(ev.clientX, ev.clientY);
     rail.ontouchend = rail.ontouchcancel = () => { selected = null; touched = null; };
     rail.onmouseup = () => { touched = null; };

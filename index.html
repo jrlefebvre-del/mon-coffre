@@ -792,7 +792,24 @@ function renderSettings() {
 }
 
 // ---------- démarrage ----------
-if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
+// Mise à jour automatique : à chaque ouverture / retour dans l'app, on demande s'il existe une
+// nouvelle version ; si oui, la page se recharge (seulement si le coffre est verrouillé).
+if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || reloading) return;
+    if (S.key) { S.updatePending = true; return; } // ne pas fermer un coffre ouvert
+    reloading = true; location.reload();
+  });
+  navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(reg => {
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) return;
+      if (S.updatePending && !S.key) { location.reload(); return; }
+      reg.update().catch(() => {});
+    });
+  }).catch(() => {});
+}
 if (!window.crypto || !crypto.subtle) {
   show(h('div', { class: 'wrap hero' }, h('h1', { text: 'Mon Coffre' }),
     h('p', { class: 'error', text: 'Cette page doit être ouverte depuis une adresse sécurisée (https://) pour pouvoir chiffrer vos données.' })));

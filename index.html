@@ -1,0 +1,594 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Mon Coffre">
+<meta name="theme-color" content="#0e161a">
+<meta name="referrer" content="no-referrer">
+<!-- Aucune connexion vers l'extérieur n'est autorisée : les identifiants ne peuvent pas quitter l'appareil. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" href="icons/icon-192.png">
+<title>Mon Coffre</title>
+<style>
+  :root {
+    --bg: #0e161a; --card: #1a252d; --border: #2a3a44; --green: #24c773;
+    --text: #e7eef3; --muted: #9baebb; --red: #ff6b6b;
+    --top: env(safe-area-inset-top); --bottom: env(safe-area-inset-bottom);
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font: 17px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif; }
+  body { min-height: 100vh; padding-bottom: calc(var(--bottom) + 24px); }
+  button, input, select { font: inherit; color: inherit; }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 0 16px; }
+  header.bar { position: sticky; top: 0; z-index: 5; background: rgba(14,22,26,.94);
+    -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+    padding: calc(var(--top) + 10px) 0 10px; border-bottom: 1px solid var(--border); }
+  header.bar .row { display: flex; align-items: center; gap: 8px; }
+  header.bar h1 { flex: 1; margin: 0; font-size: 22px; }
+  .icon-btn { min-width: 44px; min-height: 44px; border-radius: 12px; border: 1px solid var(--border);
+    background: var(--card); font-size: 20px; cursor: pointer; }
+  .back { background: none; border: 0; color: var(--green); font-size: 17px; min-height: 44px; padding: 0 4px; cursor: pointer; }
+  .search { width: 100%; margin-top: 10px; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--border);
+    background: var(--card); font-size: 17px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 18px; padding: 20px; margin: 16px 0; }
+  .muted { color: var(--muted); }
+  .small { font-size: 14px; }
+  .label { font-size: 15px; color: var(--muted); margin-bottom: 6px; }
+  .value { word-break: break-word; }
+  .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px;
+    padding: 8px 16px; border-radius: 12px; border: 1px solid var(--border); background: #22313b; cursor: pointer; }
+  .btn.primary { width: 100%; min-height: 56px; background: var(--green); border-color: var(--green); color: var(--bg); font-weight: 700; border-radius: 18px; }
+  .btn.danger { color: var(--red); }
+  .btn:disabled { opacity: .5; }
+  .row-btns { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+  hr { border: 0; border-top: 1px solid var(--border); margin: 18px 0; }
+  .field { margin-bottom: 16px; }
+  .field input { width: 100%; padding: 13px 14px; border-radius: 12px; border: 1px solid var(--border); background: var(--bg); font-size: 17px; }
+  .pw-row { display: flex; gap: 8px; }
+  .pw-row input { flex: 1; min-width: 0; }
+  .error { color: var(--red); margin: 10px 0; }
+  .ok { color: var(--green); margin: 10px 0; }
+  .letter { color: var(--green); font-weight: 700; margin: 18px 4px 8px; scroll-margin-top: calc(var(--top) + 130px); }
+  .site { display: flex; align-items: center; width: 100%; min-height: 60px; padding: 16px 18px; margin-bottom: 9px;
+    border-radius: 16px; border: 1px solid var(--border); background: var(--card); font-weight: 600; text-align: left; cursor: pointer; }
+  .site span { flex: 1; word-break: break-word; }
+  .site::after { content: "›"; color: var(--muted); font-size: 22px; }
+  .list { padding-right: 46px; }
+  .rail { position: fixed; right: calc(env(safe-area-inset-right) + 6px); top: calc(var(--top) + 140px); bottom: calc(var(--bottom) + 16px);
+    width: 36px; display: flex; flex-direction: column; justify-content: space-between; padding: 6px 0;
+    background: rgba(26,37,45,.8); border: 1px solid var(--border); border-radius: 14px; touch-action: none; user-select: none; -webkit-user-select: none; }
+  .rail b { flex: 1; display: flex; align-items: center; justify-content: center; font-size: 13px; color: var(--muted); opacity: .45; }
+  .rail b.on { color: var(--green); opacity: 1; }
+  .rail b.sel { background: rgba(36,199,115,.22); border-radius: 8px; }
+  .hero { text-align: center; padding-top: calc(var(--top) + 48px); }
+  .hero img { width: 96px; height: 96px; border-radius: 22px; }
+  .hero h1 { margin: 16px 0 6px; }
+  .hint { background: rgba(36,199,115,.1); border: 1px solid rgba(36,199,115,.4); border-radius: 14px; padding: 14px; font-size: 15px; margin: 16px 0; text-align: left; }
+  .toast { position: fixed; left: 50%; bottom: calc(var(--bottom) + 24px); transform: translateX(-50%); max-width: 90vw;
+    background: var(--green); color: var(--bg); padding: 12px 18px; border-radius: 14px; font-weight: 600; z-index: 20; }
+  .link { color: var(--green); background: none; border: 0; padding: 8px 0; text-decoration: underline; cursor: pointer; }
+  a { color: var(--green); }
+  input[type=range] { width: 100%; accent-color: var(--green); }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+'use strict';
+// ---------------------------------------------------------------------------
+// Mon Coffre (version web installable / PWA)
+// Les identifiants sont chiffrés (AES-256-GCM) avec une clé tirée du mot de passe
+// maître (PBKDF2-SHA256, 600 000 tours) et stockés uniquement sur l'appareil.
+// Rien n'est jamais envoyé sur Internet.
+// ---------------------------------------------------------------------------
+const STORE = 'moncoffre.v1';
+const ITER = 600000;
+const LOCK_MS = 2 * 60 * 1000;
+const enc = new TextEncoder(), dec = new TextDecoder();
+const app = document.getElementById('app');
+const S = { key: null, salt: null, iter: ITER, entries: [], search: '', last: Date.now(), busy: false, keepOpen: false, gen: 0 };
+
+// ---------- petits outils ----------
+function h(tag, props, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(props || {})) {
+    if (v == null || v === false) continue;
+    if (k === 'class') el.className = v;
+    else if (k === 'text') el.textContent = v;
+    else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
+    else if (k === 'value') el.value = v;
+    else el.setAttribute(k, v === true ? '' : v);
+  }
+  for (const c of kids.flat()) if (c != null && c !== false) el.append(c instanceof Node ? c : document.createTextNode(String(c)));
+  return el;
+}
+function show(...nodes) { app.replaceChildren(...nodes); window.scrollTo(0, 0); }
+function toast(msg) {
+  document.querySelectorAll('.toast').forEach(t => t.remove());
+  const t = h('div', { class: 'toast', role: 'status', text: msg });
+  document.body.append(t); setTimeout(() => t.remove(), 3500);
+}
+const toB64 = u8 => { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); };
+const fromB64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+const rand = n => crypto.getRandomValues(new Uint8Array(n));
+const uid = () => (crypto.randomUUID ? crypto.randomUUID() : toB64(rand(16)));
+const isStandalone = () => navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
+const isIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+// ---------- chiffrement ----------
+async function deriveKey(password, salt, iter) {
+  const base = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: iter, hash: 'SHA-256' }, base,
+    { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+}
+async function seal(key, salt, iter, entries) {
+  const iv = rand(12);
+  const data = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, enc.encode(JSON.stringify(entries))));
+  return { app: 'MonCoffre', v: 1, kdf: 'PBKDF2-SHA256', iter, salt: toB64(salt), iv: toB64(iv), data: toB64(data) };
+}
+function clean(e) {
+  const s = v => (typeof v === 'string' ? v : '');
+  return { id: s(e && e.id) || uid(), site: s(e && e.site), url: s(e && e.url), client: s(e && e.client), login: s(e && e.login), password: s(e && e.password) };
+}
+async function unseal(blob, password) {
+  if (!blob || blob.app !== 'MonCoffre' || blob.v !== 1 || !blob.salt || !blob.iv || !blob.data) throw new Error('Fichier de coffre non reconnu.');
+  const iter = Number(blob.iter);
+  if (!(iter >= 100000 && iter <= 10000000)) throw new Error('Fichier de coffre non reconnu.');
+  const salt = fromB64(blob.salt);
+  const key = await deriveKey(password, salt, iter);
+  let plain;
+  try { plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromB64(blob.iv) }, key, fromB64(blob.data)); }
+  catch { throw new Error('Mot de passe incorrect.'); }
+  const list = JSON.parse(dec.decode(plain));
+  if (!Array.isArray(list)) throw new Error('Contenu du coffre endommagé.');
+  return { key, salt, iter, entries: list.map(clean) };
+}
+function readStore() { try { return JSON.parse(localStorage.getItem(STORE)); } catch { return null; } }
+async function persist(next) {
+  if (!S.key) throw new Error('Le coffre est verrouillé.');
+  if (S.busy) throw new Error('Une opération est déjà en cours. Réessayez dans un instant.');
+  S.busy = true;
+  const gen = S.gen;
+  try {
+    const blob = await seal(S.key, S.salt, S.iter, next);
+    if (gen !== S.gen) throw new Error('Le coffre a été verrouillé pendant l’opération. Rouvrez-le pour vérifier son contenu.');
+    try { localStorage.setItem(STORE, JSON.stringify(blob)); }
+    catch { throw new Error('Enregistrement impossible (espace de stockage plein ?). Les données précédentes sont conservées.'); }
+    S.entries = next;
+  } finally { S.busy = false; }
+}
+
+// ---------- générateur de mots de passe (10 à 20 caractères distincts, 4 catégories) ----------
+const GROUPS = ['ABCDEFGHJKLMNPQRSTUVWXYZ', 'abcdefghijkmnopqrstuvwxyz', '23456789', '!@#$%&*+-=?'];
+function randIndex(n) {
+  const limit = 2 ** 32, accepted = limit - (limit % n), b = new Uint32Array(1);
+  do crypto.getRandomValues(b); while (b[0] >= accepted);
+  return b[0] % n;
+}
+function generatePassword(len) {
+  len = Math.min(20, Math.max(10, len | 0));
+  const out = GROUPS.map(g => g[randIndex(g.length)]);
+  const all = GROUPS.join('');
+  while (out.length < len) { const c = all[randIndex(all.length)]; if (!out.includes(c)) out.push(c); }
+  for (let i = out.length - 1; i > 0; i--) { const j = randIndex(i + 1); [out[i], out[j]] = [out[j], out[i]]; }
+  return out.join('');
+}
+
+// ---------- répertoire A–Z ----------
+const ALPHABET = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '#'];
+function sectionOf(name) {
+  const n = name.trim().replace(/[œŒ]/g, 'O').replace(/[æÆ]/g, 'A').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase();
+  return /^[A-Z]/.test(n) ? n[0] : '#';
+}
+const compare = (a, b) => a.site.localeCompare(b.site, 'fr', { sensitivity: 'base', numeric: true }) || a.id.localeCompare(b.id);
+
+// ---------- verrouillage automatique ----------
+function lock(message) {
+  S.gen++; S.key = null; S.entries = []; S.search = ''; S.busy = false;
+  renderLock(message);
+}
+['pointerdown', 'keydown', 'input', 'touchmove'].forEach(ev => document.addEventListener(ev, () => { S.last = Date.now(); }, { passive: true, capture: true }));
+document.addEventListener('scroll', () => { S.last = Date.now(); }, { passive: true, capture: true });
+setInterval(() => { if (S.key && Date.now() - S.last > LOCK_MS) lock('Coffre verrouillé après 2 minutes sans activité.'); }, 5000);
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && S.key && !S.keepOpen) lock();
+  if (!document.hidden) S.last = Date.now();
+});
+
+// ---------- presse-papier ----------
+async function copy(text, message) {
+  if (!S.key) return;
+  try { await navigator.clipboard.writeText(text); }
+  catch {
+    const t = h('textarea', { style: 'position:fixed;opacity:0' }); t.value = text; document.body.append(t);
+    t.select(); document.execCommand('copy'); t.remove();
+  }
+  toast(message);
+}
+
+// ---------- fichiers (sauvegardes) ----------
+async function saveFile(name, type, content) {
+  const file = new File([content], name, { type });
+  S.keepOpen = true;
+  try {
+    if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: name }); return true; }
+    const a = h('a', { href: URL.createObjectURL(file), download: name });
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    return true;
+  } catch (e) { if (e && e.name === 'AbortError') return false; throw e; }
+  finally { setTimeout(() => { S.keepOpen = false; }, 1500); }
+}
+function pickFile(accept, onFile) {
+  const input = h('input', { type: 'file', accept, style: 'display:none' });
+  const done = () => { setTimeout(() => { S.keepOpen = false; }, 1500); input.remove(); };
+  input.addEventListener('change', () => { done(); if (input.files[0]) onFile(input.files[0]); });
+  input.addEventListener('cancel', done);
+  document.body.append(input);
+  S.keepOpen = true; input.click();
+}
+const today = () => new Date().toISOString().slice(0, 10);
+
+// ---------- CSV (compatible Excel) ----------
+const HEADERS = ['Nom du site', 'URL', 'Code client', 'Login', 'Mot de passe'];
+function parseCSV(text) {
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+  const first = text.split(/\r?\n|\r/)[0] || '';
+  const sep = (first.split(';').length >= first.split(',').length) ? ';' : ',';
+  const rows = []; let row = [], field = '', quoted = false, closed = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (quoted) {
+      if (c === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else { quoted = false; closed = true; } }
+      else field += c;
+    } else if (c === sep) { row.push(field); field = ''; closed = false; }
+    else if (c === '\n' || c === '\r') {
+      row.push(field); rows.push(row); row = []; field = ''; closed = false;
+      if (c === '\r' && text[i + 1] === '\n') i++;
+    } else if (c === '"' && field === '' && !closed) quoted = true;
+    else { if (closed || c === '"') throw new Error('CSV mal formé : guillemets incorrects.'); field += c; }
+    if (rows.length > 10001) throw new Error('Maximum : 10 000 lignes.');
+  }
+  if (quoted) throw new Error('CSV incomplet : guillemet non fermé.');
+  if (field !== '' || row.length || closed) { row.push(field); rows.push(row); }
+  return rows;
+}
+function mapRows(table) {
+  const rows = table.filter(r => r.some(v => v !== ''));
+  if (!rows.length) throw new Error('Le fichier est vide.');
+  const norm = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const aliases = [['nomdusite', 'nomsite', 'site', 'nom'], ['url', 'adresse', 'adressedusite'], ['codeclient', 'client'], ['login', 'identifiant', 'identifiantlogin'], ['motdepasse', 'motsdepasse', 'password']];
+  const header = rows[0].map(norm);
+  const idx = aliases.map(names => {
+    const m = header.map((v, i) => (names.includes(v) ? i : -1)).filter(i => i >= 0);
+    if (m.length > 1) throw new Error('Plusieurs colonnes désignent le même champ. Gardez une seule colonne par champ.');
+    return m.length ? m[0] : -1;
+  });
+  if (idx[0] < 0 || idx[3] < 0 || idx[4] < 0) throw new Error('En-têtes attendus : Nom du site, URL, Code client, Login, Mot de passe. Le site, le login et le mot de passe sont obligatoires.');
+  const unprotect = v => (/^'[=+\-@]/.test(v) ? v.slice(1) : v);
+  return rows.slice(1).map((r, line) => {
+    const v = idx.map(i => (i >= 0 && i < r.length ? unprotect(r[i]) : ''));
+    if (!v[0].trim() || !v[3].trim() || !v[4]) throw new Error(`Ligne ${line + 2} : site, login ou mot de passe manquant. Aucun import effectué.`);
+    return { site: v[0].trim(), url: v[1].trim(), client: v[2], login: v[3].trim(), password: v[4] };
+  });
+}
+function toCSV(entries) {
+  // Une valeur commençant par = + - @ serait prise pour une formule par Excel : on la protège par une apostrophe.
+  const cell = v => '"' + (/^[=+\-@]/.test(v) ? "'" + v : v).replace(/"/g, '""') + '"';
+  const lines = [HEADERS, ...[...entries].sort(compare).map(e => [e.site, e.url, e.client, e.login, e.password])];
+  return '﻿' + lines.map(l => l.map(cell).join(';')).join('\r\n');
+}
+async function mergeEntries(incoming) {
+  const key = e => JSON.stringify([e.site, e.url, e.client, e.login, e.password]);
+  const seen = new Set(S.entries.map(key));
+  const next = [...S.entries]; let added = 0;
+  for (const e of incoming) { const k = key(e); if (!seen.has(k)) { seen.add(k); next.push({ ...clean(e), id: uid() }); added++; } }
+  if (next.length > 10000) throw new Error('Le coffre dépasserait la limite de 10 000 fiches. Aucun import effectué.');
+  if (added) await persist(next);
+  return added;
+}
+
+// =========================== ÉCRANS ===========================
+function installHint() {
+  if (isStandalone()) return null;
+  return h('div', { class: 'hint' },
+    h('b', { text: 'Installer sur l’iPhone : ' }),
+    isIOS() ? 'dans Safari, touchez le bouton Partager (carré avec flèche ⬆︎), puis « Sur l’écran d’accueil ». ' : 'ouvrez cette page dans Safari sur l’iPhone, bouton Partager ⬆︎, puis « Sur l’écran d’accueil ». ',
+    'Créez ensuite votre coffre depuis l’icône installée : Safari et l’application installée ne partagent pas leurs données.');
+}
+function pwField(label, attrs) {
+  const input = h('input', Object.assign({ type: 'password', autocomplete: 'off', autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false' }, attrs));
+  const toggle = h('button', { type: 'button', class: 'btn', 'aria-label': 'Afficher ou masquer', text: '👁',
+    onclick: () => { input.type = input.type === 'password' ? 'text' : 'password'; } });
+  return { input, node: h('div', { class: 'field' }, h('div', { class: 'label', text: label }), h('div', { class: 'pw-row' }, input, toggle)) };
+}
+
+function renderSetup() {
+  const a = pwField('Mot de passe maître (10 caractères minimum)', { autocomplete: 'new-password' });
+  const b = pwField('Confirmez le mot de passe maître', { autocomplete: 'new-password' });
+  const err = h('div', { class: 'error', role: 'alert' });
+  const btn = h('button', { class: 'btn primary', text: 'Créer mon coffre' });
+  btn.onclick = async () => {
+    err.textContent = '';
+    if (a.input.value.length < 10) { err.textContent = 'Choisissez au moins 10 caractères.'; return; }
+    if (a.input.value !== b.input.value) { err.textContent = 'Les deux mots de passe ne sont pas identiques.'; return; }
+    btn.disabled = true; btn.textContent = 'Création…';
+    try {
+      S.salt = rand(16); S.iter = ITER;
+      S.key = await deriveKey(a.input.value, S.salt, S.iter);
+      S.entries = []; S.last = Date.now();
+      await persist([]);
+      if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+      renderList();
+    } catch (e) { S.key = null; err.textContent = e.message; btn.disabled = false; btn.textContent = 'Créer mon coffre'; }
+  };
+  show(h('div', { class: 'wrap hero' },
+    h('img', { src: 'icons/icon-192.png', alt: '' }),
+    h('h1', { text: 'Mon Coffre' }),
+    h('p', { class: 'muted', text: 'Vos identifiants, chiffrés et gardés uniquement sur cet appareil.' }),
+    installHint(),
+    h('div', { class: 'card', style: 'text-align:left' }, a.node, b.node, err, btn,
+      h('p', { class: 'small muted', text: 'Important : ce mot de passe n’est stocké nulle part. Si vous l’oubliez, le coffre ne pourra pas être ouvert. Notez-le en lieu sûr et faites des sauvegardes (menu ⚙︎).' }))));
+  a.input.focus();
+}
+
+function renderLock(message) {
+  const p = pwField('Mot de passe maître', { autocomplete: 'current-password' });
+  const err = h('div', { class: 'error', role: 'alert' });
+  const info = message ? h('div', { class: 'muted small', text: message }) : null;
+  const btn = h('button', { class: 'btn primary', type: 'submit', text: 'Ouvrir le coffre' });
+  const form = h('form', { onsubmit: async ev => {
+    ev.preventDefault();
+    if (S.busy) return;
+    err.textContent = ''; btn.disabled = true; btn.textContent = 'Ouverture…'; S.busy = true;
+    const gen = S.gen;
+    try {
+      const r = await unseal(readStore(), p.input.value);
+      if (gen !== S.gen) return;
+      Object.assign(S, { key: r.key, salt: r.salt, iter: r.iter, entries: r.entries, last: Date.now() });
+      S.busy = false; renderList();
+    } catch (e) { S.busy = false; err.textContent = e.message; btn.disabled = false; btn.textContent = 'Ouvrir le coffre'; p.input.select(); }
+  } }, p.node, err, btn);
+  const reset = h('button', { class: 'link small', type: 'button', text: 'Mot de passe oublié ? Effacer le coffre', onclick: () => {
+    const typed = prompt('Ceci supprime DÉFINITIVEMENT tous les identifiants de cet appareil (seules vos sauvegardes exportées resteront).\n\nTapez EFFACER pour confirmer :');
+    if (typed === 'EFFACER') { localStorage.removeItem(STORE); renderSetup(); }
+  } });
+  show(h('div', { class: 'wrap hero' },
+    h('img', { src: 'icons/icon-192.png', alt: '' }),
+    h('h1', { text: 'Mon Coffre' }), h('p', { class: 'muted', text: '🔒 Coffre verrouillé' }), info,
+    installHint(),
+    h('div', { class: 'card', style: 'text-align:left' }, form), reset));
+  if (!isIOS()) p.input.focus();
+}
+
+function renderList() {
+  const listEl = h('div', { class: 'list' });
+  const rail = h('div', { class: 'rail', 'aria-label': 'Index alphabétique' });
+  const search = h('input', { class: 'search', type: 'search', placeholder: 'Rechercher un site, un login…', value: S.search,
+    autocomplete: 'off', autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false',
+    oninput: () => { S.search = search.value; fill(); } });
+  let selected = null;
+  function jump(letter, groups) {
+    if (!groups[letter] || selected === letter) return;
+    selected = letter;
+    rail.querySelectorAll('b').forEach(b => b.classList.toggle('sel', b.dataset.l === letter));
+    const target = document.getElementById('L-' + letter);
+    if (target) target.scrollIntoView({ block: 'start' });
+  }
+  function fill() {
+    const q = S.search.trim().toLocaleLowerCase('fr');
+    const shown = S.entries.filter(e => !q || (e.site + ' ' + e.login + ' ' + e.url).toLocaleLowerCase('fr').includes(q)).sort(compare);
+    const groups = {};
+    for (const e of shown) (groups[sectionOf(e.site)] ||= []).push(e);
+    const kids = [];
+    if (!S.entries.length) {
+      kids.push(h('div', { class: 'card' }, h('div', { style: 'font-size:34px', text: '🔑' }), h('h2', { text: 'Votre coffre est prêt' }),
+        h('p', { class: 'muted', text: 'Ajoutez votre premier site pour le retrouver dans ce répertoire, ou importez une sauvegarde depuis ⚙︎.' }),
+        h('button', { class: 'btn primary', text: '+ Ajouter mon premier site', onclick: () => renderEdit(null) })));
+    } else if (!shown.length) kids.push(h('div', { class: 'card muted', text: 'Aucun site ne correspond à votre recherche.' }));
+    for (const L of ALPHABET) if (groups[L]) {
+      kids.push(h('div', { class: 'letter', id: 'L-' + L, text: L }));
+      for (const e of groups[L]) kids.push(h('button', { class: 'site', 'aria-label': 'Ouvrir le site ' + e.site, onclick: () => renderDetail(e.id) }, h('span', { text: e.site })));
+    }
+    listEl.replaceChildren(...kids);
+    rail.replaceChildren(...ALPHABET.map(L => h('b', { 'data-l': L, class: groups[L] ? 'on' : '', text: L })));
+    rail.style.display = S.entries.length ? '' : 'none';
+    const pick = (x, y) => { const el = document.elementFromPoint(x, y); if (el && el.dataset && el.dataset.l) jump(el.dataset.l, groups); };
+    rail.ontouchstart = rail.ontouchmove = ev => { ev.preventDefault(); const t = ev.touches[0]; pick(t.clientX, t.clientY); };
+    rail.onmousedown = ev => pick(ev.clientX, ev.clientY);
+    rail.ontouchend = () => { selected = null; };
+  }
+  const header = h('header', { class: 'bar' }, h('div', { class: 'wrap' },
+    h('div', { class: 'row' },
+      h('h1', { text: 'Mon Coffre' }),
+      h('button', { class: 'icon-btn', 'aria-label': 'Réglages et sauvegardes', text: '⚙︎', onclick: renderSettings }),
+      h('button', { class: 'icon-btn', 'aria-label': 'Verrouiller', text: '🔒', onclick: () => lock() }),
+      h('button', { class: 'icon-btn', 'aria-label': 'Ajouter un site', style: 'color:var(--green);font-weight:700', text: '+', onclick: () => renderEdit(null) })),
+    search));
+  fill();
+  show(header, h('div', { class: 'wrap' }, listEl), rail);
+}
+
+function renderDetail(id) {
+  const e = S.entries.find(x => x.id === id);
+  if (!e) return renderList();
+  let revealed = false;
+  const pw = h('div', { class: 'value mono', text: '••••••••••••' });
+  const eye = h('button', { class: 'btn', text: '👁 Afficher', onclick: () => {
+    revealed = !revealed; pw.textContent = revealed ? e.password : '••••••••••••'; eye.textContent = revealed ? '🙈 Masquer' : '👁 Afficher';
+  } });
+  const field = (label, value) => [h('div', { class: 'label', text: label }), h('div', { class: 'value', text: value }),
+    h('div', { class: 'row-btns' }, h('button', { class: 'btn', text: '⧉ Copier', onclick: () => copy(value, label + ' copié.') }))];
+  let urlNode;
+  try {
+    const u = new URL(e.url);
+    if (!['http:', 'https:'].includes(u.protocol)) throw 0;
+    urlNode = h('a', { href: u.href, target: '_blank', rel: 'noopener noreferrer', class: 'value', text: e.url + ' ↗' });
+  } catch { urlNode = h('div', { class: 'muted value', text: e.url || 'Aucune URL renseignée' }); }
+  const lines = ['Site : ' + e.site, 'Login : ' + e.login, 'Mot de passe : ' + e.password];
+  if (e.client) lines.push('Code client : ' + e.client);
+  if (e.url) lines.push('URL : ' + e.url);
+  show(
+    h('header', { class: 'bar' }, h('div', { class: 'wrap row' }, h('button', { class: 'back', text: '‹ Répertoire', onclick: renderList }))),
+    h('div', { class: 'wrap' },
+      h('h1', { style: 'margin:20px 0 0;word-break:break-word', text: e.site }),
+      h('div', { class: 'card' },
+        field('Login', e.login), h('hr'),
+        h('div', { class: 'label', text: 'Mot de passe' }), pw,
+        h('div', { class: 'row-btns' }, eye, h('button', { class: 'btn', text: '⧉ Copier', onclick: () => copy(e.password, 'Mot de passe copié.') })),
+        e.client ? [h('hr'), field('Code client', e.client)] : null),
+      h('div', { class: 'card' }, h('div', { class: 'label', text: 'Adresse du site' }), urlNode),
+      h('button', { class: 'btn primary', text: '⧉ Copier toute la fiche', onclick: () => copy(lines.join('\n'), 'Fiche copiée. Collez-la dans Messages ou une note.') }),
+      h('p', { class: 'small muted', text: 'Inclut le mot de passe en clair. Choisissez son destinataire avec soin. Pensez à vider le presse-papier ensuite (copiez autre chose).' }),
+      h('div', { class: 'row-btns', style: 'justify-content:space-between;margin-top:20px' },
+        h('button', { class: 'btn', text: '✎ Modifier', onclick: () => renderEdit(e) }),
+        h('button', { class: 'btn danger', text: '🗑 Supprimer', onclick: async () => {
+          if (!confirm(`Supprimer définitivement la fiche « ${e.site} » ?`)) return;
+          try { await persist(S.entries.filter(x => x.id !== e.id)); toast('Fiche supprimée.'); renderList(); }
+          catch (er) { alert(er.message); }
+        } }))));
+}
+
+function renderEdit(entry) {
+  const isNew = !entry;
+  const e = entry ? { ...entry } : { id: uid(), site: '', url: '', client: '', login: '', password: '' };
+  const input = (label, key, attrs) => {
+    const el = h('input', Object.assign({ value: e[key], autocomplete: 'off', autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false' }, attrs));
+    return { el, node: h('div', { class: 'field' }, h('div', { class: 'label', text: label }), el) };
+  };
+  const site = input('Nom du site *', 'site', { autocapitalize: 'words' });
+  const url = input('Adresse (URL)', 'url', { type: 'url', inputmode: 'url', placeholder: 'https://…' });
+  const client = input('Code client (facultatif)', 'client');
+  const logins = [...new Set(S.entries.map(x => x.login).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fr'));
+  const login = input('Login *', 'login', { list: 'logins', inputmode: 'email' });
+  const datalist = h('datalist', { id: 'logins' }, logins.map(l => h('option', { value: l })));
+  const pw = pwField('Mot de passe *', { value: e.password, autocomplete: 'new-password' });
+  let len = 16;
+  const lenLabel = h('span', { text: len + ' caractères' });
+  const range = h('input', { type: 'range', min: 10, max: 20, value: len, oninput: () => { len = +range.value; lenLabel.textContent = len + ' caractères'; } });
+  const gen = h('button', { class: 'btn', type: 'button', text: '🎲 Générer un mot de passe', onclick: () => { pw.input.value = generatePassword(len); pw.input.type = 'text'; } });
+  const err = h('div', { class: 'error', role: 'alert' });
+  const save = h('button', { class: 'btn primary', text: 'Enregistrer', onclick: async () => {
+    const rec = { id: e.id, site: site.el.value.trim(), url: url.el.value.trim(), client: client.el.value, login: login.el.value.trim(), password: pw.input.value };
+    if (!rec.site || !rec.login || !rec.password) { err.textContent = 'Renseignez le nom du site, le login et le mot de passe.'; return; }
+    save.disabled = true;
+    try {
+      const next = [...S.entries]; const i = next.findIndex(x => x.id === rec.id);
+      if (i >= 0) next[i] = rec; else next.push(rec);
+      await persist(next); toast('Fiche enregistrée.'); renderDetail(rec.id);
+    } catch (er) { err.textContent = er.message; save.disabled = false; }
+  } });
+  show(
+    h('header', { class: 'bar' }, h('div', { class: 'wrap row' },
+      h('button', { class: 'back', text: '‹ Annuler', onclick: () => (isNew ? renderList() : renderDetail(e.id)) }),
+      h('h1', { style: 'font-size:18px;text-align:center', text: isNew ? 'Nouveau site' : 'Modifier' }),
+      h('span', { style: 'width:70px' }))),
+    h('div', { class: 'wrap' },
+      h('div', { class: 'card' }, site.node, url.node, client.node, login.node, datalist,
+        logins.length ? h('p', { class: 'small muted', style: 'margin-top:-8px', text: 'Astuce : touchez le champ Login pour réutiliser un login déjà enregistré.' }) : null,
+        pw.node,
+        h('div', { class: 'label' }, 'Longueur : ', lenLabel), range,
+        h('div', { class: 'row-btns' }, gen)),
+      err, save));
+  if (isNew) site.el.focus();
+}
+
+function renderSettings() {
+  const msg = h('div', { role: 'status' });
+  const say = (text, ok) => { msg.className = ok ? 'ok' : 'error'; msg.textContent = text; };
+  const run = fn => async (...args) => { msg.textContent = ''; try { await fn(...args); } catch (e) { say(e.message, false); } };
+
+  // Sauvegarde chiffrée
+  const exportEnc = run(async () => {
+    const blob = readStore();
+    if (await saveFile(`MonCoffre-sauvegarde-${today()}.moncoffre`, 'application/json', JSON.stringify(blob)))
+      say('Sauvegarde chiffrée créée. Gardez-la dans Fichiers / iCloud Drive : elle s’ouvre avec votre mot de passe maître actuel.', true);
+  });
+  const importBox = h('div');
+  const importEnc = () => pickFile('.moncoffre,.json,application/json', file => {
+    const p = pwField('Mot de passe de cette sauvegarde', { autocomplete: 'off' });
+    const go = h('button', { class: 'btn', text: 'Importer', onclick: run(async () => {
+      if (file.size > 20e6) throw new Error('Fichier trop volumineux.');
+      let blob; try { blob = JSON.parse(await file.text()); } catch { throw new Error('Fichier de sauvegarde non reconnu.'); }
+      go.disabled = true;
+      try { const r = await unseal(blob, p.input.value); const n = await mergeEntries(r.entries); importBox.replaceChildren(); say(`${n} fiche(s) ajoutée(s) (les doublons sont ignorés).`, true); }
+      finally { go.disabled = false; }
+    }) });
+    importBox.replaceChildren(h('p', { class: 'small', text: 'Fichier : ' + file.name }), p.node, go);
+  });
+
+  // CSV / Excel
+  const importCSV = () => pickFile('.csv,text/csv', run(async file => {
+    if (file.size > 8e6) throw new Error('Fichier trop volumineux (maximum 8 Mo).');
+    const n = await mergeEntries(mapRows(parseCSV(await file.text())));
+    say(`${n} fiche(s) ajoutée(s) depuis le CSV (les doublons sont ignorés).`, true);
+  }));
+  const exportCSV = run(async () => {
+    if (!confirm('Le fichier CSV contiendra tous vos mots de passe EN CLAIR, lisibles par quiconque y a accès. Continuer ?')) return;
+    if (await saveFile(`MonCoffre-${today()}.csv`, 'text/csv', toCSV(S.entries))) say('Fichier CSV créé. Supprimez-le dès que vous n’en avez plus besoin.', true);
+  });
+
+  // Changer le mot de passe maître
+  const cur = pwField('Mot de passe maître actuel', { autocomplete: 'current-password' });
+  const n1 = pwField('Nouveau mot de passe (10 caractères minimum)', { autocomplete: 'new-password' });
+  const n2 = pwField('Confirmez le nouveau mot de passe', { autocomplete: 'new-password' });
+  const change = h('button', { class: 'btn', text: 'Changer le mot de passe maître', onclick: run(async () => {
+    if (n1.input.value.length < 10) throw new Error('Choisissez au moins 10 caractères.');
+    if (n1.input.value !== n2.input.value) throw new Error('Les deux nouveaux mots de passe ne sont pas identiques.');
+    change.disabled = true;
+    try {
+      await unseal(readStore(), cur.input.value); // vérifie l'ancien mot de passe
+      const salt = rand(16), key = await deriveKey(n1.input.value, salt, ITER);
+      const old = { key: S.key, salt: S.salt, iter: S.iter };
+      Object.assign(S, { key, salt, iter: ITER });
+      try { await persist(S.entries); } catch (e) { Object.assign(S, old); throw e; }
+      [cur, n1, n2].forEach(f => { f.input.value = ''; });
+      say('Mot de passe maître changé. Pensez à refaire une sauvegarde chiffrée.', true);
+    } finally { change.disabled = false; }
+  }) });
+
+  show(
+    h('header', { class: 'bar' }, h('div', { class: 'wrap row' }, h('button', { class: 'back', text: '‹ Répertoire', onclick: renderList }))),
+    h('div', { class: 'wrap' },
+      h('h1', { style: 'margin:20px 0 0', text: 'Réglages' }),
+      h('p', { class: 'muted', text: `${S.entries.length} fiche(s) dans le coffre.` }),
+      msg,
+      h('div', { class: 'card' },
+        h('h3', { style: 'margin-top:0', text: 'Sauvegarde chiffrée (recommandé)' }),
+        h('p', { class: 'small muted', text: 'Le coffre n’existe que sur cet appareil. Exportez régulièrement une sauvegarde et rangez-la dans Fichiers ou iCloud Drive. Elle reste chiffrée par votre mot de passe maître.' }),
+        h('div', { class: 'row-btns' },
+          h('button', { class: 'btn', text: '⬆︎ Exporter une sauvegarde', onclick: exportEnc }),
+          h('button', { class: 'btn', text: '⬇︎ Ajouter depuis une sauvegarde', onclick: importEnc })),
+        importBox),
+      h('div', { class: 'card' },
+        h('h3', { style: 'margin-top:0', text: 'Excel (CSV)' }),
+        h('p', { class: 'small muted', text: 'Colonnes : Nom du site ; URL ; Code client ; Login ; Mot de passe. Dans Excel : Fichier › Enregistrer sous › CSV UTF-8.' }),
+        h('div', { class: 'row-btns' },
+          h('button', { class: 'btn', text: '⬇︎ Importer un CSV', onclick: importCSV }),
+          h('button', { class: 'btn danger', text: '⬆︎ Exporter en CSV (non chiffré)', onclick: exportCSV }))),
+      h('div', { class: 'card' },
+        h('h3', { style: 'margin-top:0', text: 'Mot de passe maître' }), cur.node, n1.node, n2.node, change),
+      h('div', { class: 'card small muted' },
+        h('h3', { style: 'margin-top:0;color:var(--text)', text: 'Sécurité' }),
+        h('p', { text: 'Chiffrement AES-256 ; clé tirée du mot de passe maître (600 000 tours PBKDF2). Aucune donnée n’est envoyée sur Internet.' }),
+        h('p', { text: 'Le coffre se verrouille quand vous quittez l’application ou après 2 minutes sans activité.' }))));
+}
+
+// ---------- démarrage ----------
+if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
+if (!window.crypto || !crypto.subtle) {
+  show(h('div', { class: 'wrap hero' }, h('h1', { text: 'Mon Coffre' }),
+    h('p', { class: 'error', text: 'Cette page doit être ouverte depuis une adresse sécurisée (https://) pour pouvoir chiffrer vos données.' })));
+} else if (readStore()) renderLock(); else renderSetup();
+</script>
+</body>
+</html>
